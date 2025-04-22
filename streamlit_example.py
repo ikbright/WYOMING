@@ -384,6 +384,7 @@ d = {'DEPT': 'last', 'Number of fractures': 'sum'}
 res = df2.groupby(df2.index // calc).agg(d).round({'DEPT': 1, 'Number of fractures': 0})
 st.dataframe(res.style.highlight_max(axis=0))
 
+res = res[res['DEPT'] <= 9681]
 fig_nf, ax_nf = plt.subplots(figsize=(5,10))
 ax_nf.plot('Number of fractures', 'DEPT', data=res, color='red', lw=0.5)
 ax_nf.set_xlim(0, 40)
