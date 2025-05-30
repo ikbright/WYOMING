@@ -18,7 +18,14 @@ import base64
 ##### Page Setup #####
 
 st.set_page_config(page_title="WYOMING Dashboard")
-st.title('Computer Vision Workflow')
+st.title('Wyoming FMI Baffle Mapping Dashboard')
+st.markdown(
+    """
+    **Note:** This tool is built using [Streamlit](https://streamlit.io), an open-source Python framework for creating web apps. 
+    The term "Streamlit" refers to the platform usednot the name of this dashboard.
+    """,
+    unsafe_allow_html=True
+)
 st.write('''This dashboard is intended for easier observations when changing different values of the algorithms contained in this workflow. 
          The workflow now supports the full range of useable data from the Wyoming well. The upper section ranges from **8000 ft** to **9000 ft** while the lower section ranges from **9050 ft** to **9681 ft**.''')
 st.header('Original Image')
@@ -56,143 +63,158 @@ st.markdown("""
                 </html>
             """, unsafe_allow_html=True)
 
+# --- Depth Interval Selection ---
 st.sidebar.header('Depth Interval')
 
-well_section = st.sidebar.radio('Which well section do you want to analyze?', ('Upper', 'Lower'), index=0)
+well_section = st.sidebar.radio(
+    'Which well section do you want to analyze?',
+    ('Upper', 'Lower'),
+    index=0,
+    help='Select the part of the well to analyze. Upper = 8000–9000 ft, Lower = 9050–9681 ft.'
+)
 
 if well_section == 'Upper':
-    bot = st.sidebar.number_input('State top depth in ft. The interval is 2ft for better resolution', value=8490, max_value = 9000, min_value = 8000)
+    bot = st.sidebar.number_input(
+        'State top depth in ft. The interval is 2ft for better resolution',
+        value=8490,
+        max_value=9000,
+        min_value=8000,
+        help='Enter the top depth for analysis in the Upper section.'
+    )
+else:
+    bot = st.sidebar.number_input(
+        'State top depth in ft. The interval is 2ft for better resolution',
+        value=9120,
+        max_value=9681,
+        min_value=9050,
+        help='Enter the top depth for analysis in the Lower section.'
+    )
 
-if well_section == 'Lower':
-    bot = st.sidebar.number_input('State top depth in ft. The interval is 2ft for better resolution', value=9120, max_value = 9681, min_value = 9050)
+image_range = st.sidebar.radio(
+    'Choose the range of the image for analysis',
+    ('1 ft', '2 ft'),
+    index=1,
+    help='Select the vertical interval of the image to process. 1 ft gives higher resolution.'
+)
 
-image_range = st.sidebar.radio('Choose the range of the image for analysis', ('1 ft', '2 ft'), index=1)
-if image_range == '1 ft':
-    top = bot + 1
-elif image_range == '2 ft':
-    top = bot + 2
+top = bot + 1 if image_range == '1 ft' else bot + 2
 depths = load_depths(bot, top, well_section)
 mat2 = data_gen(bot, top, well_section)
 ori_img = mat2.copy()
 
+# --- Image Manipulation ---
 st.sidebar.header('Image manipulation')
+
 color_range = st.sidebar.slider(
     "Pixel range:",
-    value=(float(mat2.min().min()),float(mat2.max().max())))
+    value=(float(mat2.min().min()), float(mat2.max().max())),
+    help="Adjust to brighten or darken the image based on pixel intensity. This improves visibility of features."
+)
 
-fig_original = px.imshow(mat2, color_continuous_scale = 'YlOrBr_r', range_color=(color_range[0], color_range[1]))
-fig_original.update_xaxes(visible=False)
+fig_original = px.imshow(mat2, color_continuous_scale='YlOrBr_r', range_color=color_range)
 st.plotly_chart(fig_original)
 
 st.sidebar.header('Pixel Histogram Equalization')
-eq_check = st.sidebar.checkbox('Check the box if you want to perform pixel normalization', value = False)
-
-if eq_check == True:
+eq_check = st.sidebar.checkbox(
+    'Check the box if you want to perform pixel normalization',
+    value=False,
+    help='Enable this to apply histogram equalization and enhance image contrast before filtering.'
+)
+if eq_check:
     mat2 = cv2.equalizeHist(mat2)
-    fig_eq = px.imshow(mat2, color_continuous_scale = 'YlOrBr_r', range_color=(color_range[0], color_range[1]))
-    fig_eq.update_xaxes(visible=False)
-
+    fig_eq = px.imshow(mat2, color_continuous_scale='YlOrBr_r', range_color=color_range)
     st.plotly_chart(fig_eq)
-##### Kernel selection #####
 
+# --- Kernel Selection ---
 st.header('Average / Gaussian / Bilateral')
-st.write('Choose between the different filtering options on the sidebar or experiment to see which fits the depth interval better.')
+st.write('Choose between the different filtering options.')
 
 st.sidebar.header('Kernel Selection')
-filter_option = st.sidebar.radio('Filter Options', ('Averaging Kernel', 'Median Filter', 'Gaussian Blur', 'Bilateral Filter'), index=3) # Boolean
+filter_option = st.sidebar.radio(
+    'Filter Options',
+    ('Averaging Kernel', 'Median Filter', 'Gaussian Blur', 'Bilateral Filter'),
+    index=3,
+    help='Choose a smoothing filter. Bilateral preserves edges, Gaussian blurs gently, Median removes noise, and Averaging smooths everything.'
+)
 
 if filter_option == 'Averaging Kernel':
-    kernel_avg = np.ones((5,5),np.float32)/25
-    output = cv2.filter2D(mat2,-1,kernel_avg)
+    kernel_avg = np.ones((5, 5), np.float32) / 25
+    output = cv2.filter2D(mat2, -1, kernel_avg)
 elif filter_option == 'Gaussian Blur':
-    output = cv2.blur(mat2,(7,7))
+    output = cv2.blur(mat2, (7, 7))
 elif filter_option == 'Bilateral Filter':
-    output = cv2.bilateralFilter(mat2,9,75,75)
+    output = cv2.bilateralFilter(mat2, 9, 75, 75)
 elif filter_option == 'Median Filter':
-    output = cv2.medianBlur(mat2,5)
+    output = cv2.medianBlur(mat2, 5)
 
-fig_filter = px.imshow(output,color_continuous_scale = 'YlOrBr_r', range_color=(color_range[0], color_range[1]))
+fig_filter = px.imshow(output, color_continuous_scale='YlOrBr_r', range_color=color_range)
 st.plotly_chart(fig_filter)
 
-##### Gabor filters #####
-    
+# --- Gabor Filters ---
 st.header('Gabor Filters')
-st.write('This step filters the lines in the image based on a range of angles specified by the parameters in the sidebar.')
-st.sidebar.header('Gabor Filter Args')
+st.write('Filter image lines based on orientation and frequency.')
 
-num_filters = st.sidebar.slider('Number of filters', 3, 50, 16)
-ksize = st.sidebar.slider('Kernel size', 3, 9, 5)  # The local area to evaluate
-sigma = st.sidebar.slider('Sigma value', 0.5, 10.0, 5.0)  # Larger Values produce more edges
-lambd = st.sidebar.slider('Lambda value', 0.5, 50.0, 10.0)
-gamma = st.sidebar.slider('Gamma value', 0.0, 5.0, 0.5)
-psi = st.sidebar.slider('Psi value', 0, 5, 0)  # Offset value - lower generates cleaner results
+st.sidebar.header('Gabor Filter Args')
+num_filters = st.sidebar.slider('Number of filters', 3, 50, 16, help='More filters detect features at more orientations.')
+ksize = st.sidebar.slider('Kernel size', 3, 9, 5, help='Size of the filter kernel window.')
+sigma = st.sidebar.slider('Sigma value', 0.5, 10.0, 5.0, help='Standard deviation of Gaussian envelope.')
+lambd = st.sidebar.slider('Lambda value', 0.5, 50.0, 10.0, help='Wavelength of sinusoidal component.')
+gamma = st.sidebar.slider('Gamma value', 0.0, 5.0, 0.5, help='Aspect ratio of the Gabor kernel.')
+psi = st.sidebar.slider('Psi value', 0, 5, 0, help='Phase offset that adjusts the symmetry.')
 
 gfilters = create_gaborfilter(num_filters, ksize, sigma, lambd, gamma, psi)
 image_g = apply_filter(output, gfilters)
-
-fig_gabor = px.imshow(image_g, color_continuous_scale = 'gray')
+fig_gabor = px.imshow(image_g, color_continuous_scale='gray')
 st.plotly_chart(fig_gabor)
 
-##### KMeans #####
-    
-# st.header('Kmeans Computation')
-# st.write('If K-Means is used in this step, the resultant image will be used in the rest of the workflow. Otherwise, this step will be skipped.')
-# st.sidebar.header('Kmeans Args')
-# kmeans_check = st.sidebar.checkbox('Would you like to run KMeans?', value = True)
-# if kmeans_check == True:
-#     k_value = st.sidebar.number_input('What K-value would you want to try?', value = 10, min_value = 2)
-#     res2 = KMeans(image_g, k_value)
-
-#     fig_kmeans = px.imshow(res2, color_continuous_scale = 'gray')
-#     fig_kmeans.update_xaxes(visible=False)
-#     st.plotly_chart(fig_kmeans)
-
-##### Thresholding #####
-
+# --- Thresholding ---
 st.header('Thresholding Options')
-st.write('Thresholding is done to highlight the edges better.')
 st.sidebar.header('Thresholding')
-thresh_option = st.sidebar.radio('Thresholding Options', ('Otsu', 'Adaptive Mean', 'Adaptive Gaussian'), index=0) # Boolean
+thresh_option = st.sidebar.radio(
+    'Thresholding Options',
+    ('Otsu', 'Adaptive Mean', 'Adaptive Gaussian'),
+    index=0,
+    help='Otsu chooses a global threshold; adaptive uses local pixel regions.'
+)
 
 if thresh_option == 'Otsu':
     globalthreshold = threshold_otsu(image_g)
-    binary_img = image_g > globalthreshold
-    binary_img = (binary_img * 255).astype(np.uint8)
+    binary_img = (image_g > globalthreshold).astype(np.uint8) * 255
 elif thresh_option == 'Adaptive Mean':
-    binary_img = cv2.adaptiveThreshold(image_g, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
-                                          cv2.THRESH_BINARY, 199, 5)
-elif thresh_option == 'Adaptive Gaussian':
-    binary_img = cv2.adaptiveThreshold(image_g, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                          cv2.THRESH_BINARY, 199, 5)
+    binary_img = cv2.adaptiveThreshold(image_g, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 199, 5)
+else:
+    binary_img = cv2.adaptiveThreshold(image_g, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 199, 5)
 
-fig_thresh = px.imshow(binary_img, color_continuous_scale = 'gray')
+fig_thresh = px.imshow(binary_img, color_continuous_scale='gray')
 st.plotly_chart(fig_thresh)
 
-##### Canny Edge Detection #####
-
+# --- Canny Edge Detection ---
 st.header('Canny Edge Detection')
-st.write('This step detects edges contained in the resultant image and connects qualifying edges based on the threshold values in the sidebar. An optional L2 gradient can also be used.')
 st.sidebar.header('Canny Edge Args')
 
-# Defining all the parameters
-threshold_values = st.sidebar.slider('Threshold values', 500, 1500, (700, 900))
-aperture_size = 5 # Aperture size
-L2Gradient = st.sidebar.radio('Enable L2 Gradient?', ('True', 'False'), index=1) # Boolean
-  
-# Applying the Canny Edge filter with Aperture Size and L2Gradient
+threshold_values = st.sidebar.slider(
+    'Threshold values',
+    500, 1500, (700, 900),
+    help='Low and high values for detecting image edges.'
+)
+
+L2Gradient = st.sidebar.radio(
+    'Enable L2 Gradient?',
+    ('True', 'False'),
+    index=1,
+    help='Uses more precise L2 norm gradient detection.'
+)
 
 if L2Gradient == 'True':
-    edge = cv2.Canny(binary_img, threshold_values[0], threshold_values[1],
-                    apertureSize = aperture_size, 
-                    L2gradient = True )
+    edge = cv2.Canny(binary_img, threshold_values[0], threshold_values[1], apertureSize=5, L2gradient=True)
 else:
-    edge = cv2.Canny(binary_img, threshold_values[0], threshold_values[1],
-                apertureSize = aperture_size)
+    edge = cv2.Canny(binary_img, threshold_values[0], threshold_values[1], apertureSize=5)
 
-edge_copy = edge.copy()
-    
-fig_canny = px.imshow(edge, color_continuous_scale = 'gray')
+edge_copy = edge.copy()  # ✅ This line ensures edge_copy is defined after edge is computed
+
+fig_canny = px.imshow(edge_copy, color_continuous_scale='gray')
 st.plotly_chart(fig_canny)
+
 
 ##### Threshold with Original #####
 
@@ -384,9 +406,17 @@ d = {'DEPT': 'last', 'Number of fractures': 'sum'}
 res = df2.groupby(df2.index // calc).agg(d).round({'DEPT': 1, 'Number of fractures': 0})
 st.dataframe(res.style.highlight_max(axis=0))
 
-res = res[res['DEPT'] <= 9681]
 fig_nf, ax_nf = plt.subplots(figsize=(5,10))
 ax_nf.plot('Number of fractures', 'DEPT', data=res, color='red', lw=0.5)
+# CSV export button for baffle counts
+csv_data = res.to_csv(index=False).encode('utf-8')
+st.download_button(
+    label="Download Baffle Count Data as CSV",
+    data=csv_data,
+    file_name='baffle_counts.csv',
+    mime='text/csv',
+)
+
 ax_nf.set_xlim(0, 40)
 ax_nf.set_ylim(ax_nf.get_ylim()[::-1])
 ax_nf.set_title('Number of baffles/barriers')
